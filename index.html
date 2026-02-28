@@ -37,13 +37,17 @@
       <section class="hero">
         <div class="hero__text">
           <h1 class="hero__title">主頁展示牆</h1>
-          <p class="hero__sub">點「新增圖片」會開新分頁編輯；編輯完成 PO 回主頁後，這裡會自動更新。</p>
+          <p class="hero__sub">點「新增圖片」會開新分頁編輯；編輯完成 PO 回主頁後，這裡會自動更新（資料預設只保存在你的瀏覽器）。</p>
         </div>
         <div class="hero__actions">
           <button id="newPostBtn" type="button" class="btn btn--primary">新增圖片</button>
           <a class="btn" href="editor.html" target="_blank" rel="noopener">開啟編輯器</a>
+          <button id="exportBtn" type="button" class="btn">匯出</button>
+          <button id="importBtn" type="button" class="btn">匯入</button>
         </div>
       </section>
+
+      <input id="importFile" class="sr-only" type="file" accept="application/json" />
 
       <section class="gallery">
         <div class="gallery__top">

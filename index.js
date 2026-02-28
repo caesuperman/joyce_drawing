@@ -7,6 +7,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const newBtn = APP.mustGet("newPostBtn");
   newBtn.addEventListener("click", () => openEditor());
 
+  const exportBtn = APP.mustGet("exportBtn");
+  exportBtn.addEventListener("click", () => exportGallery());
+
+  const importBtn = APP.mustGet("importBtn");
+  const importFile = APP.mustGet("importFile");
+  importBtn.addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", () => {
+    if (!importFile.files || importFile.files.length === 0) return;
+    importGallery(importFile.files[0]);
+    importFile.value = "";
+  });
+
   dbPromise = APP.openDb().catch((err) => {
     console.error(err);
     showEmpty("你的瀏覽器無法使用 IndexedDB，目前無法顯示/保存已發布圖片。\n建議改用 Chrome/Edge。", true);
@@ -16,6 +28,138 @@ document.addEventListener("DOMContentLoaded", () => {
   listenForUpdates();
   renderPosts();
 });
+
+async function exportGallery() {
+  const posts = APP.getPosts();
+  if (posts.length === 0) {
+    alert("目前沒有可匯出的圖片。");
+    return;
+  }
+
+  const db = await dbPromise;
+  if (!db) {
+    alert("你的瀏覽器無法使用 IndexedDB，無法匯出圖片檔。");
+    return;
+  }
+
+  const payload = {
+    version: 1,
+    exportedAt: Date.now(),
+    posts: [],
+  };
+
+  for (const post of posts) {
+    // eslint-disable-next-line no-await-in-loop
+    const rec = await APP.idbGet(db, APP_CONST.STORE_POST_IMAGES, post.id);
+    if (!rec || !rec.fullBlob) continue;
+
+    // eslint-disable-next-line no-await-in-loop
+    const fullDataUrl = await blobToDataUrl(rec.fullBlob);
+    // eslint-disable-next-line no-await-in-loop
+    const thumbDataUrl = rec.thumbBlob ? await blobToDataUrl(rec.thumbBlob) : null;
+    const comments = APP.getPostComments(post.id);
+
+    payload.posts.push({
+      post,
+      comments,
+      image: {
+        fullDataUrl,
+        thumbDataUrl,
+        fullExt: post.fullExt || rec.fullExt || "jpg",
+      },
+    });
+  }
+
+  const name = `gallery-export-${new Date().toISOString().slice(0, 10)}.json`;
+  downloadJson(payload, name);
+}
+
+async function importGallery(file) {
+  if (!file) return;
+  if (file.type && file.type !== "application/json") {
+    alert("請選擇 JSON 檔案。");
+    return;
+  }
+
+  const db = await dbPromise;
+  if (!db) {
+    alert("你的瀏覽器無法使用 IndexedDB，無法匯入圖片檔。");
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || data.version !== 1 || !Array.isArray(data.posts)) throw new Error("bad format");
+
+    const incomingPosts = [];
+    for (const item of data.posts) {
+      if (!item || !item.post || !item.image || !item.image.fullDataUrl) continue;
+
+      const post = item.post;
+      const fullBlob = dataUrlToBlob(item.image.fullDataUrl);
+      const thumbBlob = item.image.thumbDataUrl ? dataUrlToBlob(item.image.thumbDataUrl) : null;
+      const fullExt = item.image.fullExt || post.fullExt || "jpg";
+
+      // eslint-disable-next-line no-await-in-loop
+      await APP.idbPut(db, APP_CONST.STORE_POST_IMAGES, { id: post.id, fullBlob, thumbBlob, fullExt });
+      if (Array.isArray(item.comments)) APP.savePostComments(post.id, item.comments);
+      incomingPosts.push(post);
+    }
+
+    // Merge posts by id (imported first)
+    const existing = APP.getPosts();
+    const seen = new Set();
+    const merged = [];
+
+    for (const p of incomingPosts) {
+      if (p && p.id && !seen.has(p.id)) {
+        merged.push(p);
+        seen.add(p.id);
+      }
+    }
+    for (const p of existing) {
+      if (p && p.id && !seen.has(p.id)) {
+        merged.push(p);
+        seen.add(p.id);
+      }
+    }
+
+    APP.savePosts(merged);
+    APP.notifyPostsUpdated();
+    renderPosts();
+    alert("匯入完成。主頁已更新。");
+  } catch (err) {
+    console.error(err);
+    alert("匯入失敗：檔案格式不正確。");
+  }
+}
+
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj)], { type: "application/json" });
+  APP.downloadBlob(blob, filename);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function dataUrlToBlob(dataUrl) {
+  const s = String(dataUrl || "");
+  const m = s.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) throw new Error("bad data url");
+  const mime = m[1];
+  const b64 = m[2];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
 
 function listenForUpdates() {
   const { CHANNEL_NAME } = APP_CONST;
