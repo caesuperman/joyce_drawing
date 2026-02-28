@@ -112,8 +112,15 @@ async function renderPosts() {
     edit.textContent = "在新分頁編輯";
     edit.addEventListener("click", () => openEditor(post.id));
 
+    const del = document.createElement("button");
+    del.className = "btn";
+    del.type = "button";
+    del.textContent = "刪除";
+    del.addEventListener("click", () => deletePost(post.id));
+
     actions.appendChild(dl);
     actions.appendChild(edit);
+    actions.appendChild(del);
 
     const commentsWrap = document.createElement("div");
     commentsWrap.className = "post__comments";
@@ -184,6 +191,33 @@ async function renderPosts() {
     el.appendChild(top);
     el.appendChild(body);
     grid.appendChild(el);
+  }
+}
+
+async function deletePost(postId) {
+  const ok = window.confirm("確定要刪除這張已發布圖片？（會同時刪除圖片檔與留言）");
+  if (!ok) return;
+
+  try {
+    const posts = APP.getPosts();
+    const next = posts.filter((p) => p.id !== postId);
+    APP.savePosts(next);
+
+    try {
+      localStorage.removeItem(`${APP_CONST.POST_COMMENTS_PREFIX}${postId}`);
+    } catch {
+      // ignore
+    }
+
+    const db = await dbPromise;
+    if (db) {
+      await APP.idbDelete(db, APP_CONST.STORE_POST_IMAGES, postId);
+    }
+
+    APP.notifyPostsUpdated();
+    renderPosts();
+  } catch (err) {
+    console.error(err);
   }
 }
 

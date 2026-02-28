@@ -43,7 +43,11 @@ function bindUI() {
   const publishBtn = APP.mustGet("publishBtn");
   const captionText = APP.mustGet("captionText");
 
-  pickBtn.addEventListener("click", () => fileInput.click());
+  pickBtn.addEventListener("click", (e) => {
+    // Prevent bubbling to dropZone click handler (double open in some browsers).
+    e.stopPropagation();
+    fileInput.click();
+  });
   fileInput.addEventListener("change", () => {
     if (!fileInput.files || fileInput.files.length === 0) return;
     handleFile(fileInput.files[0]);

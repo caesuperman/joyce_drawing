@@ -246,6 +246,16 @@ window.APP = {
     });
   },
 
+  idbDelete(db, storeName, key) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      store.delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("idbDelete failed"));
+    });
+  },
+
   notifyPostsUpdated() {
     const { CHANNEL_NAME } = APP_CONST;
     try {
