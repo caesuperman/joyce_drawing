@@ -1,8 +1,14 @@
-/* eslint-disable no-use-before-define */
-
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const MAX_RENDER_WIDTH = 1800;
 const MAX_RENDER_HEIGHT = 1800;
+const THUMB_MAX_W = 840;
+const THUMB_MAX_H = 560;
+
+const POSTS_KEY = "img-colorizer-posts-v1";
+const POST_COMMENTS_PREFIX = "img-colorizer-post-comments-v1::";
+const DB_NAME = "img-colorizer-db";
+const DB_VERSION = 1;
+const STORE_POST_IMAGES = "postImages";
 
 const COLOR_LIBRARY = [
   { id: "teal", name: "湖水綠", hex: "#2dd4bf" },
@@ -34,34 +40,47 @@ const TONES = {
 };
 
 let currentFile = null;
-let currentImageKey = null;
 let originalImageData = null;
 let originalDrawn = false;
+let applyTimer = null;
+let dbPromise = null;
+
+const postThumbUrls = new Map();
 
 document.addEventListener("DOMContentLoaded", () => {
   bindUI();
   hydrateColorOptions();
   syncIntensityLabel();
+  syncCaptionCount();
   setStatus("等待上傳圖片。", "idle");
   drawPlaceholder();
+
+  dbPromise = openDb().catch((err) => {
+    console.error(err);
+    setStatus("你的瀏覽器無法使用 IndexedDB（無法保存已發布圖片）。", "error");
+    return null;
+  });
+
+  renderPosts();
 });
 
 function bindUI() {
   const fileInput = mustGet("fileInput");
   const dropZone = mustGet("dropZone");
   const pickBtn = mustGet("pickBtn");
+
   const schemeSelect = mustGet("schemeSelect");
   const toneSelect = mustGet("toneSelect");
   const colorNameSelect = mustGet("colorNameSelect");
   const colorPicker = mustGet("colorPicker");
   const intensityRange = mustGet("intensityRange");
+
   const applyBtn = mustGet("applyBtn");
   const resetBtn = mustGet("resetBtn");
   const downloadBtn = mustGet("downloadBtn");
-  const commentForm = mustGet("commentForm");
-  const commentText = mustGet("commentText");
-  const clearCommentsBtn = mustGet("clearCommentsBtn");
-  const demoBtn = mustGet("demoBtn");
+  const publishBtn = mustGet("publishBtn");
+
+  const captionText = mustGet("captionText");
 
   pickBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
@@ -96,48 +115,37 @@ function bindUI() {
   });
 
   schemeSelect.addEventListener("change", () => {
-    if (originalDrawn) setStatus("已選擇色系，按下「套用上色」更新結果。", "ready");
     updateResultMeta();
+    scheduleApply();
   });
   toneSelect.addEventListener("change", () => {
-    if (originalDrawn) setStatus("已調整色調，按下「套用上色」更新結果。", "ready");
     updateResultMeta();
+    scheduleApply();
   });
-
   colorNameSelect.addEventListener("change", () => {
     const picked = COLOR_LIBRARY.find((c) => c.id === colorNameSelect.value);
     if (!picked) return;
     if (picked.id !== "custom") colorPicker.value = picked.hex;
-    if (originalDrawn) setStatus("已選擇顏色，按下「套用上色」更新結果。", "ready");
     updateResultMeta();
+    scheduleApply();
   });
   colorPicker.addEventListener("input", () => {
     colorNameSelect.value = "custom";
-    if (originalDrawn) setStatus("已更新調色盤顏色，按下「套用上色」更新結果。", "ready");
     updateResultMeta();
+    scheduleApply();
   });
-
   intensityRange.addEventListener("input", () => {
     syncIntensityLabel();
-    if (originalDrawn) setStatus("已調整套用比例，按下「套用上色」更新結果。", "ready");
     updateResultMeta();
+    scheduleApply();
   });
 
-  applyBtn.addEventListener("click", () => applyColorize());
+  applyBtn.addEventListener("click", () => applyColorizeNow());
   resetBtn.addEventListener("click", () => resetResult());
   downloadBtn.addEventListener("click", () => downloadResult());
+  publishBtn.addEventListener("click", () => publishPost());
 
-  commentText.addEventListener("input", () => {
-    mustGet("commentCount").textContent = String(commentText.value.length);
-  });
-
-  commentForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    postComment();
-  });
-
-  clearCommentsBtn.addEventListener("click", () => clearComments());
-  demoBtn.addEventListener("click", () => fillDemoComment());
+  captionText.addEventListener("input", () => syncCaptionCount());
 }
 
 function hydrateColorOptions() {
@@ -157,6 +165,11 @@ function syncIntensityLabel() {
   mustGet("intensityLabel").textContent = `${v}%`;
 }
 
+function syncCaptionCount() {
+  const v = String(mustGet("captionText").value || "");
+  mustGet("captionCount").textContent = String(v.length);
+}
+
 async function handleFile(file) {
   const isImage = (file.type && file.type.startsWith("image/")) || looksLikeImageName(file.name);
   if (!isImage) {
@@ -169,32 +182,30 @@ async function handleFile(file) {
   }
 
   currentFile = file;
-  currentImageKey = makeImageKey(file);
   originalImageData = null;
   originalDrawn = false;
 
   mustGet("fileName").textContent = file.name;
   mustGet("imageSize").textContent = `${formatBytes(file.size)}`;
   mustGet("origBadge").textContent = "載入中";
-  mustGet("resultBadge").textContent = "等待套用";
+  mustGet("resultBadge").textContent = "處理中";
   mustGet("resultBadge").classList.add("badge--mute");
   updateResultMeta();
 
   setStatus("正在載入圖片...", "busy");
+  setControlsEnabled(false);
 
   try {
     const img = await loadImageFromFile(file);
     drawOriginal(img);
-    drawResultFromOriginal();
     originalDrawn = true;
     setControlsEnabled(true);
-    setCommentEnabled(true);
-    loadComments();
-    setStatus("圖片已載入。選擇色系與顏色後，按下「套用上色」。", "ready");
+    updateResultMeta();
+    scheduleApply(true);
+    setStatus("圖片已載入，調整選項會自動更新上色結果。", "ready");
   } catch (err) {
     console.error(err);
     setControlsEnabled(false);
-    setCommentEnabled(false);
     mustGet("origBadge").textContent = "載入失敗";
     setStatus("圖片載入失敗。請換一張圖片再試。", "error");
   }
@@ -204,11 +215,7 @@ function setControlsEnabled(enabled) {
   mustGet("applyBtn").disabled = !enabled;
   mustGet("resetBtn").disabled = !enabled;
   mustGet("downloadBtn").disabled = !enabled;
-}
-
-function setCommentEnabled(enabled) {
-  mustGet("postBtn").disabled = !enabled;
-  mustGet("clearCommentsBtn").disabled = !enabled;
+  mustGet("publishBtn").disabled = !enabled;
 }
 
 function drawOriginal(img) {
@@ -216,7 +223,9 @@ function drawOriginal(img) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("2D context not available");
 
-  const { w, h } = fitWithin(img.naturalWidth || img.width, img.naturalHeight || img.height, MAX_RENDER_WIDTH, MAX_RENDER_HEIGHT);
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  const { w, h } = fitWithin(srcW, srcH, MAX_RENDER_WIDTH, MAX_RENDER_HEIGHT);
   canvas.width = w;
   canvas.height = h;
 
@@ -225,25 +234,21 @@ function drawOriginal(img) {
 
   originalImageData = ctx.getImageData(0, 0, w, h);
   mustGet("origBadge").textContent = "已載入";
-  updateResultMeta();
 }
 
-function drawResultFromOriginal() {
-  if (!originalImageData) return;
-  const canvas = mustGet("resultCanvas");
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) throw new Error("2D context not available");
-  canvas.width = originalImageData.width;
-  canvas.height = originalImageData.height;
-  ctx.putImageData(originalImageData, 0, 0);
+function scheduleApply(immediate) {
+  if (!originalDrawn) return;
+  if (applyTimer) window.clearTimeout(applyTimer);
+  const delay = immediate ? 0 : 140;
+  applyTimer = window.setTimeout(() => {
+    applyTimer = null;
+    applyColorizeNow();
+  }, delay);
 }
 
-function applyColorize() {
-  if (!originalImageData || !currentFile) {
-    setStatus("請先上傳圖片。", "error");
-    return;
-  }
-  setStatus("正在上色...（圖片較大時可能需要幾秒）", "busy");
+function applyColorizeNow() {
+  if (!originalImageData || !currentFile) return;
+  setStatus("正在上色...", "busy");
 
   const schemeId = mustGet("schemeSelect").value;
   const toneId = mustGet("toneSelect").value;
@@ -278,15 +283,20 @@ function applyColorize() {
   ctx.putImageData(out, 0, 0);
 
   const ms = Math.round(performance.now() - t0);
-  mustGet("resultBadge").textContent = "已完成";
+  mustGet("resultBadge").textContent = "已更新";
   mustGet("resultBadge").classList.remove("badge--mute");
   updateResultMeta();
-  setStatus(`上色完成（${ms}ms）。可以下載成品或在下方留言。`, "ok");
+  setStatus(`上色完成（${ms}ms）。可下載或 PO 到主網頁。`, "ok");
 }
 
 function resetResult() {
   if (!originalImageData) return;
-  drawResultFromOriginal();
+  const canvas = mustGet("resultCanvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+  canvas.width = originalImageData.width;
+  canvas.height = originalImageData.height;
+  ctx.putImageData(originalImageData, 0, 0);
   mustGet("resultBadge").textContent = "已還原";
   mustGet("resultBadge").classList.add("badge--mute");
   setStatus("已還原為原圖。", "ready");
@@ -310,19 +320,80 @@ function downloadResult() {
         setStatus("下載失敗（無法產生檔案）。", "error");
         return;
       }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = outName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, outName);
       setStatus(`已下載：${outName}`, "ok");
     },
     mimeFromExt(ext),
     0.92
   );
+}
+
+async function publishPost() {
+  if (!currentFile || !originalImageData) {
+    setStatus("請先上傳並上色圖片。", "error");
+    return;
+  }
+
+  const publishBtn = mustGet("publishBtn");
+  publishBtn.disabled = true;
+  setStatus("正在發布到主網頁...", "busy");
+
+  const postId = `p_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const schemeId = mustGet("schemeSelect").value;
+  const toneId = mustGet("toneSelect").value;
+  const intensity = Number(mustGet("intensityRange").value);
+  const colorHex = String(mustGet("colorPicker").value || "#2dd4bf").toUpperCase();
+
+  const captionName = String(mustGet("captionName").value || "").trim() || "匿名";
+  const captionText = String(mustGet("captionText").value || "").trim();
+
+  try {
+    const { fullBlob, fullExt } = await canvasToBlobWithExt(mustGet("resultCanvas"), currentFile.type);
+    const thumbBlob = await makeThumbnailBlob(mustGet("resultCanvas"), fullExt);
+
+    const post = {
+      id: postId,
+      createdAt: Date.now(),
+      originalName: currentFile.name,
+      originalType: currentFile.type || "",
+      width: originalImageData.width,
+      height: originalImageData.height,
+      schemeId,
+      toneId,
+      intensity,
+      colorHex,
+      fullExt,
+    };
+
+    const posts = getPosts();
+    posts.unshift(post);
+    savePosts(posts);
+
+    const db = await dbPromise;
+    if (!db) throw new Error("IndexedDB unavailable");
+    await idbPut(db, STORE_POST_IMAGES, {
+      id: postId,
+      fullBlob,
+      thumbBlob,
+      fullExt,
+    });
+
+    if (captionText) {
+      const items = getPostComments(postId);
+      items.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: captionName, text: captionText, ts: Date.now() });
+      savePostComments(postId, items);
+      mustGet("captionText").value = "";
+      syncCaptionCount();
+    }
+
+    renderPosts();
+    setStatus("已 PO 到主網頁展示牆。可以繼續調整或上傳新圖片再 PO。", "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("發布失敗。請再試一次。", "error");
+  } finally {
+    publishBtn.disabled = false;
+  }
 }
 
 function updateResultMeta() {
@@ -350,8 +421,10 @@ function setStatus(text, kind) {
     ok: "rgba(52,211,153,0.95)",
     error: "rgba(251,113,133,0.95)",
   };
-  dot.style.background = styles[kind] || styles.idle;
-  dot.style.boxShadow = `0 0 0 4px ${alpha(styles[kind] || styles.idle, 0.18)}`;
+
+  const c = styles[kind] || styles.idle;
+  dot.style.background = c;
+  dot.style.boxShadow = `0 0 0 4px ${alpha(c, 0.18)}`;
 }
 
 function alpha(rgbLike, a) {
@@ -389,13 +462,12 @@ function colorizeImageData(imageData, opts) {
 
   const sat = clamp01(baseS * scheme.satMult * tone.satExtra);
   const contrast = scheme.contrast * tone.contrastExtra;
+  const hue = wrapHue(baseH + scheme.hueShift);
 
   const w = imageData.width;
   const h = imageData.height;
   const src = imageData.data;
   const out = new Uint8ClampedArray(src.length);
-
-  const hue = wrapHue(baseH + scheme.hueShift);
 
   for (let i = 0; i < src.length; i += 4) {
     const r = src[i];
@@ -415,7 +487,6 @@ function colorizeImageData(imageData, opts) {
     light = clamp01((light - 0.5) * contrast + 0.5);
 
     const tinted = hslToRgb(hue, sat, light);
-
     out[i] = mix8(r, tinted.r, intensity);
     out[i + 1] = mix8(g, tinted.g, intensity);
     out[i + 2] = mix8(b, tinted.b, intensity);
@@ -548,13 +619,13 @@ function formatBytes(bytes) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function makeImageKey(file) {
-  return `${file.name}|${file.size}|${file.lastModified}|${file.type}`;
-}
-
 function safeBaseName(filename) {
   const base = String(filename || "image").replace(/\\/g, "/").split("/").pop() || "image";
-  return base.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "image";
+  return base
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "") || "image";
 }
 
 function guessDownloadExt(mime) {
@@ -591,34 +662,53 @@ function loadImageFromFile(file) {
   });
 }
 
-function commentsKey() {
-  return currentImageKey ? `img-colorizer-comments::${currentImageKey}` : null;
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-function loadComments() {
-  const key = commentsKey();
-  if (!key) return;
-  let items = [];
+function canvasToBlob(canvas, mime) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => {
+        if (!b) reject(new Error("toBlob returned null"));
+        else resolve(b);
+      },
+      mime,
+      0.92
+    );
+  });
+}
+
+async function canvasToBlobWithExt(canvas, preferredMime) {
+  const ext = guessDownloadExt(preferredMime);
+  const mime = mimeFromExt(ext);
+  const fullBlob = await canvasToBlob(canvas, mime);
+  return { fullBlob, fullExt: ext };
+}
+
+async function makeThumbnailBlob(srcCanvas, ext) {
+  const w0 = srcCanvas.width;
+  const h0 = srcCanvas.height;
+  const { w, h } = fitWithin(w0, h0, THUMB_MAX_W, THUMB_MAX_H);
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  if (!ctx) throw new Error("2D context not available");
+  ctx.drawImage(srcCanvas, 0, 0, w, h);
+  return canvasToBlob(c, mimeFromExt(ext));
+}
+
+function getPosts() {
   try {
-    const raw = localStorage.getItem(key);
-    if (raw) items = JSON.parse(raw);
-  } catch {
-    items = [];
-  }
-  renderComments(Array.isArray(items) ? items : []);
-}
-
-function saveComments(items) {
-  const key = commentsKey();
-  if (!key) return;
-  localStorage.setItem(key, JSON.stringify(items));
-}
-
-function getComments() {
-  const key = commentsKey();
-  if (!key) return [];
-  try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(POSTS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -627,40 +717,178 @@ function getComments() {
   }
 }
 
-function postComment() {
-  if (!currentImageKey) {
-    setStatus("請先上傳圖片後再留言。", "error");
-    return;
-  }
-  const name = String(mustGet("commentName").value || "").trim();
-  const text = String(mustGet("commentText").value || "").trim();
-  if (!text) return;
-
-  const items = getComments();
-  items.unshift({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    name: name || "匿名",
-    text,
-    ts: Date.now(),
-  });
-  saveComments(items);
-  renderComments(items);
-
-  mustGet("commentText").value = "";
-  mustGet("commentCount").textContent = "0";
-  setStatus("留言已送出（保存在本機瀏覽器）。", "ok");
+function savePosts(posts) {
+  localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
 }
 
-function renderComments(items) {
-  const list = mustGet("commentList");
-  const empty = mustGet("emptyComments");
-  list.innerHTML = "";
+function getPostComments(postId) {
+  try {
+    const raw = localStorage.getItem(`${POST_COMMENTS_PREFIX}${postId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
-  if (!items || items.length === 0) {
+function savePostComments(postId, items) {
+  localStorage.setItem(`${POST_COMMENTS_PREFIX}${postId}`, JSON.stringify(items));
+}
+
+async function renderPosts() {
+  const grid = mustGet("postGrid");
+  const empty = mustGet("emptyPosts");
+  const posts = getPosts();
+
+  revokeAllThumbUrls();
+
+  grid.innerHTML = "";
+  if (posts.length === 0) {
     empty.style.display = "block";
     return;
   }
   empty.style.display = "none";
+
+  const db = await dbPromise;
+  if (!db) {
+    empty.style.display = "block";
+    empty.textContent = "你的瀏覽器無法使用 IndexedDB，目前無法顯示/保存已發布圖片。";
+    return;
+  }
+
+  for (const post of posts) {
+    const el = document.createElement("article");
+    el.className = "post";
+
+    const top = document.createElement("div");
+    top.className = "post__top";
+
+    const title = document.createElement("h4");
+    title.className = "post__title";
+    title.textContent = safeTitle(post.originalName);
+
+    const meta = document.createElement("div");
+    meta.className = "post__meta";
+    meta.textContent = `${formatTime(post.createdAt)} | ${post.width}x${post.height}`;
+
+    top.appendChild(title);
+    top.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.className = "post__body";
+
+    const img = document.createElement("img");
+    img.className = "post__img";
+    img.alt = "已發布圖片";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.src = "";
+
+    const imgRec = await idbGet(db, STORE_POST_IMAGES, post.id);
+    if (imgRec && imgRec.thumbBlob) {
+      setThumbUrl(post.id, img, imgRec.thumbBlob);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "post__actions";
+
+    const dl = document.createElement("button");
+    dl.className = "btn btn--primary";
+    dl.type = "button";
+    dl.textContent = "下載";
+    dl.addEventListener("click", () => downloadPost(post.id));
+
+    const edit = document.createElement("button");
+    edit.className = "btn";
+    edit.type = "button";
+    edit.textContent = "載入到編輯器";
+    edit.addEventListener("click", () => loadPostIntoEditor(post));
+
+    actions.appendChild(dl);
+    actions.appendChild(edit);
+
+    const commentsWrap = document.createElement("div");
+    commentsWrap.className = "post__comments";
+
+    const commentsTitle = document.createElement("div");
+    commentsTitle.className = "post__commentsTitle";
+    commentsTitle.textContent = "留言評論";
+
+    const form = document.createElement("form");
+    form.className = "post__commentForm";
+
+    const nameInput = document.createElement("input");
+    nameInput.className = "field__control";
+    nameInput.type = "text";
+    nameInput.maxLength = 24;
+    nameInput.placeholder = "暱稱（可留空）";
+
+    const textArea = document.createElement("textarea");
+    textArea.className = "field__control";
+    textArea.rows = 2;
+    textArea.maxLength = 280;
+    textArea.placeholder = "留下你的評論...";
+    textArea.required = true;
+
+    const row = document.createElement("div");
+    row.className = "post__actions";
+
+    const send = document.createElement("button");
+    send.className = "btn btn--primary";
+    send.type = "submit";
+    send.textContent = "送出留言";
+
+    row.appendChild(send);
+
+    form.appendChild(nameInput);
+    form.appendChild(textArea);
+    form.appendChild(row);
+
+    const list = document.createElement("ol");
+    list.className = "post__commentList";
+
+    const emptyNote = document.createElement("div");
+    emptyNote.className = "post__empty";
+    emptyNote.textContent = "尚未有留言。";
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = String(nameInput.value || "").trim() || "匿名";
+      const text = String(textArea.value || "").trim();
+      if (!text) return;
+      const items = getPostComments(post.id);
+      items.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, name, text, ts: Date.now() });
+      savePostComments(post.id, items);
+      textArea.value = "";
+      renderPostComments(list, emptyNote, items);
+      setStatus("留言已送出（保存在本機瀏覽器）。", "ok");
+    });
+
+    renderPostComments(list, emptyNote, getPostComments(post.id));
+
+    commentsWrap.appendChild(commentsTitle);
+    commentsWrap.appendChild(form);
+    commentsWrap.appendChild(list);
+    commentsWrap.appendChild(emptyNote);
+
+    body.appendChild(img);
+    body.appendChild(actions);
+    body.appendChild(commentsWrap);
+
+    el.appendChild(top);
+    el.appendChild(body);
+    grid.appendChild(el);
+  }
+}
+
+function renderPostComments(listEl, emptyEl, items) {
+  listEl.innerHTML = "";
+  if (!items || items.length === 0) {
+    emptyEl.style.display = "block";
+    return;
+  }
+  emptyEl.style.display = "none";
 
   for (const it of items) {
     const li = document.createElement("li");
@@ -686,29 +914,72 @@ function renderComments(items) {
 
     li.appendChild(top);
     li.appendChild(text);
-    list.appendChild(li);
+    listEl.appendChild(li);
   }
 }
 
-function clearComments() {
-  const key = commentsKey();
-  if (!key) return;
-  localStorage.removeItem(key);
-  renderComments([]);
-  setStatus("已清除這張圖的留言。", "ready");
+async function downloadPost(postId) {
+  const posts = getPosts();
+  const post = posts.find((p) => p.id === postId);
+  if (!post) return;
+
+  setStatus("正在準備下載...", "busy");
+  try {
+    const db = await dbPromise;
+    const rec = await idbGet(db, STORE_POST_IMAGES, postId);
+    if (!rec || !rec.fullBlob) throw new Error("missing blob");
+    const base = safeBaseName(post.originalName);
+    const outName = `${base}-posted.${post.fullExt || "jpg"}`;
+    downloadBlob(rec.fullBlob, outName);
+    setStatus(`已下載：${outName}`, "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("下載失敗。", "error");
+  }
 }
 
-function fillDemoComment() {
-  const samples = [
-    "霓虹很有感，像夜景一樣亮！",
-    "莫蘭迪很舒服，適合人像或室內照。",
-    "暖色系配琥珀橘很像日落，喜歡。",
-  ];
-  const pick = samples[Math.floor(Math.random() * samples.length)];
-  const ta = mustGet("commentText");
-  ta.value = ta.value ? `${ta.value}\n${pick}` : pick;
-  mustGet("commentCount").textContent = String(ta.value.length);
-  ta.focus();
+async function loadPostIntoEditor(post) {
+  setStatus("正在載入已發布圖片到編輯器...", "busy");
+  try {
+    const db = await dbPromise;
+    const rec = await idbGet(db, STORE_POST_IMAGES, post.id);
+    if (!rec || !rec.fullBlob) throw new Error("missing blob");
+
+    const mime = mimeFromExt(post.fullExt || "jpg");
+    const file = new File([rec.fullBlob], post.originalName || "posted.jpg", { type: mime });
+
+    mustGet("schemeSelect").value = post.schemeId || "single";
+    mustGet("toneSelect").value = post.toneId || "normal";
+    mustGet("intensityRange").value = String(post.intensity ?? 70);
+    syncIntensityLabel();
+    mustGet("colorPicker").value = String(post.colorHex || "#2dd4bf");
+    mustGet("colorNameSelect").value = "custom";
+    updateResultMeta();
+
+    await handleFile(file);
+    setStatus("已載入到編輯器，可直接調整並再次 PO。", "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("載入失敗。", "error");
+  }
+}
+
+function setThumbUrl(postId, imgEl, blob) {
+  const prev = postThumbUrls.get(postId);
+  if (prev) URL.revokeObjectURL(prev);
+  const url = URL.createObjectURL(blob);
+  postThumbUrls.set(postId, url);
+  imgEl.src = url;
+}
+
+function revokeAllThumbUrls() {
+  for (const url of postThumbUrls.values()) URL.revokeObjectURL(url);
+  postThumbUrls.clear();
+}
+
+function safeTitle(name) {
+  const s = String(name || "已發布圖片").trim();
+  return s.length > 40 ? `${s.slice(0, 37)}...` : s;
 }
 
 function formatTime(ts) {
@@ -719,4 +990,38 @@ function formatTime(ts) {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_POST_IMAGES)) {
+        db.createObjectStore(STORE_POST_IMAGES, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("indexedDB open failed"));
+  });
+}
+
+function idbPut(db, storeName, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    store.put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("idbPut failed"));
+  });
+}
+
+function idbGet(db, storeName, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const req = store.get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("idbGet failed"));
+  });
 }

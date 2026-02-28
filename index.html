@@ -110,6 +110,25 @@
           </div>
         </section>
 
+        <section class="card">
+          <h3 class="card__title">3) 留言並 PO 到主網頁展示</h3>
+
+          <label class="field">
+            <span class="field__label">暱稱（可留空）</span>
+            <input id="captionName" class="field__control" type="text" maxlength="24" placeholder="例如：Joyce" autocomplete="nickname" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">留言（會跟圖片一起 PO 上去）</span>
+            <textarea id="captionText" class="field__control" rows="3" maxlength="280" placeholder="例如：這張我用莫蘭迪配湖水綠...\n" ></textarea>
+            <div class="field__help"><span id="captionCount">0</span>/280</div>
+          </label>
+
+          <div class="actions">
+            <button id="publishBtn" type="button" class="btn btn--primary" disabled>PO 到主網頁</button>
+          </div>
+        </section>
+
         <section class="card card--status" aria-live="polite" aria-atomic="true">
           <div class="status__dot" aria-hidden="true"></div>
           <div id="statusText" class="status__text">等待上傳圖片。</div>
@@ -144,39 +163,14 @@
           </section>
         </div>
 
-        <section class="comments">
-          <div class="comments__top">
-            <h3 class="comments__title">留言評論</h3>
-            <button id="clearCommentsBtn" type="button" class="btn btn--ghost" disabled>清除這張圖的留言</button>
+        <section class="gallery">
+          <div class="gallery__top">
+            <h3 class="gallery__title">主網頁展示（可一直加入新圖片）</h3>
+            <div class="gallery__hint">提示：PO 後會出現在這裡；每張圖都可留言與下載。</div>
           </div>
 
-          <form id="commentForm" class="commentForm">
-            <label class="field">
-              <span class="field__label">暱稱（可留空）</span>
-              <input id="commentName" class="field__control" type="text" maxlength="24" placeholder="例如：Joyce" autocomplete="nickname" />
-            </label>
-
-            <label class="field">
-              <span class="field__label">留言</span>
-              <textarea
-                id="commentText"
-                class="field__control"
-                rows="3"
-                maxlength="280"
-                placeholder="說說你喜歡哪個色系，或想要哪種效果..."
-                required
-              ></textarea>
-              <div class="field__help"><span id="commentCount">0</span>/280</div>
-            </label>
-
-            <div class="actions">
-              <button id="postBtn" class="btn btn--primary" type="submit" disabled>送出留言</button>
-              <button id="demoBtn" class="btn" type="button">塞入示範留言</button>
-            </div>
-          </form>
-
-          <ol id="commentList" class="commentList" aria-label="留言列表"></ol>
-          <div id="emptyComments" class="empty">尚未有留言。上色完成後，留下第一則評論吧。</div>
+          <div id="postGrid" class="postGrid" aria-label="已發布圖片列表"></div>
+          <div id="emptyPosts" class="empty">目前還沒有發布的圖片。上傳、上色後按下「PO 到主網頁」即可加入展示牆。</div>
         </section>
       </section>
     </main>

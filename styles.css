@@ -477,6 +477,118 @@ body {
   font-size: 12px;
 }
 
+.gallery {
+  margin-top: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+  box-shadow: var(--shadow2);
+  padding: 14px;
+}
+
+.gallery__top {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.gallery__title {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.gallery__hint {
+  color: var(--muted2);
+  font-size: 12px;
+}
+
+.postGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.post {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.post__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.post__title {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.post__meta {
+  color: var(--muted2);
+  font-size: 11px;
+  text-align: right;
+}
+
+.post__body {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.post__img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.post__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.post__comments {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
+}
+
+.post__commentsTitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.post__commentForm {
+  display: grid;
+  gap: 10px;
+}
+
+.post__commentList {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.post__empty {
+  margin-top: 10px;
+  color: var(--muted2);
+  font-size: 12px;
+}
+
 .footer {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.18);
@@ -523,6 +635,9 @@ body {
     position: static;
   }
   .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .postGrid {
     grid-template-columns: 1fr;
   }
 }
