@@ -120,6 +120,44 @@ body {
   padding: 20px 0 30px;
 }
 
+.home {
+  padding: 20px 0 30px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 10px 0 14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: radial-gradient(900px 260px at 15% 0%, rgba(45, 212, 191, 0.14), transparent 58%),
+    radial-gradient(800px 260px at 82% 18%, rgba(245, 158, 11, 0.10), transparent 58%), rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow2);
+}
+
+.hero__title {
+  margin: 0;
+  font-family: "Space Grotesk", ui-sans-serif, system-ui;
+  font-size: 22px;
+  letter-spacing: 0.2px;
+}
+
+.hero__sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hero__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .panel {
   position: sticky;
   top: 76px;
@@ -639,5 +677,12 @@ body {
   }
   .postGrid {
     grid-template-columns: 1fr;
+  }
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hero__actions {
+    justify-content: flex-start;
   }
 }

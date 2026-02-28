@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>圖片編輯 - 上色工作台</title>
+    <meta name="description" content="在新分頁上傳圖片並上色，完成後 PO 回主頁展示。" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="container">
+        <div class="brand">
+          <div class="brand__mark" aria-hidden="true">CJ</div>
+          <div class="brand__text">
+            <div class="brand__title">圖片編輯</div>
+            <div class="brand__sub">Edit / Colorize / Publish</div>
+          </div>
+        </div>
+
+        <div class="topbar__meta">
+          <a class="btn btn--ghost" href="index.html">回主頁</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <aside class="panel">
+        <h2 class="panel__title">控制面板</h2>
+        <p class="panel__hint">選擇圖片一次即可導入；調整選項會自動更新上色結果。完成後按「PO 到主頁」。</p>
+
+        <section class="card">
+          <h3 class="card__title">1) 上傳圖片</h3>
+
+          <div id="dropZone" class="drop" role="button" tabindex="0" aria-label="拖曳圖片到此或點擊選擇檔案">
+            <div class="drop__title">拖曳圖片到這裡</div>
+            <div class="drop__sub">或點擊選擇檔案（最多 15MB）</div>
+            <button id="pickBtn" type="button" class="btn btn--primary">選擇圖片</button>
+          </div>
+
+          <input id="fileInput" class="sr-only" type="file" accept="image/*" />
+
+          <div class="row row--tight">
+            <div class="kv">
+              <div class="kv__k">檔案</div>
+              <div id="fileName" class="kv__v">尚未選擇</div>
+            </div>
+            <div class="kv">
+              <div class="kv__k">大小</div>
+              <div id="imageSize" class="kv__v">-</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3 class="card__title">2) 選色系與顏色</h3>
+
+          <label class="field">
+            <span class="field__label">色系風格</span>
+            <select id="schemeSelect" class="field__control">
+              <option value="single">單色上色</option>
+              <option value="warm">暖色系（偏日落）</option>
+              <option value="cool">冷色系（偏海霧）</option>
+              <option value="vintage">復古（偏底片）</option>
+              <option value="morandi">莫蘭迪（柔霧低彩度）</option>
+              <option value="neon">霓虹（高彩度）</option>
+              <option value="ink">墨水（高對比）</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="field__label">色調強度</span>
+            <select id="toneSelect" class="field__control">
+              <option value="soft">柔和</option>
+              <option value="normal" selected>標準</option>
+              <option value="bold">濃烈</option>
+            </select>
+          </label>
+
+          <div class="row">
+            <label class="field" style="flex: 1">
+              <span class="field__label">推薦顏色</span>
+              <select id="colorNameSelect" class="field__control"></select>
+            </label>
+
+            <label class="field" style="width: 160px">
+              <span class="field__label">調色盤</span>
+              <input id="colorPicker" class="field__control field__control--color" type="color" value="#2dd4bf" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">套用比例 <span id="intensityLabel" class="muted">70%</span></span>
+            <input id="intensityRange" class="range" type="range" min="0" max="100" value="70" />
+          </label>
+
+          <div class="actions">
+            <button id="applyBtn" type="button" class="btn btn--primary" disabled>手動套用</button>
+            <button id="resetBtn" type="button" class="btn" disabled>還原</button>
+            <button id="downloadBtn" type="button" class="btn" disabled>下載成品</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3 class="card__title">3) 留言並 PO 到主頁</h3>
+
+          <label class="field">
+            <span class="field__label">暱稱（可留空）</span>
+            <input id="captionName" class="field__control" type="text" maxlength="24" placeholder="例如：Joyce" autocomplete="nickname" />
+          </label>
+
+          <label class="field">
+            <span class="field__label">留言（會跟圖片一起 PO 上去）</span>
+            <textarea id="captionText" class="field__control" rows="3" maxlength="280" placeholder="例如：這張我用復古配湖水綠...\n"></textarea>
+            <div class="field__help"><span id="captionCount">0</span>/280</div>
+          </label>
+
+          <div class="actions">
+            <button id="publishBtn" type="button" class="btn btn--primary" disabled>PO 到主頁</button>
+            <a class="btn" href="index.html">回主頁查看</a>
+          </div>
+        </section>
+
+        <section class="card card--status" aria-live="polite" aria-atomic="true">
+          <div class="status__dot" aria-hidden="true"></div>
+          <div id="statusText" class="status__text">等待上傳圖片。</div>
+        </section>
+      </aside>
+
+      <section class="stage">
+        <div class="stage__header">
+          <h2 class="stage__title">預覽</h2>
+          <div id="resultMeta" class="stage__meta">-</div>
+        </div>
+
+        <div class="grid2">
+          <section class="frame">
+            <div class="frame__top">
+              <div class="frame__title">原圖</div>
+              <div id="origBadge" class="badge">尚未上傳</div>
+            </div>
+            <div class="frame__body">
+              <canvas id="originalCanvas" class="canvas" width="640" height="420" aria-label="原圖預覽"></canvas>
+            </div>
+          </section>
+
+          <section class="frame">
+            <div class="frame__top">
+              <div class="frame__title">上色後</div>
+              <div id="resultBadge" class="badge badge--mute">等待處理</div>
+            </div>
+            <div class="frame__body">
+              <canvas id="resultCanvas" class="canvas" width="640" height="420" aria-label="上色結果預覽"></canvas>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__inner">
+        <div class="footer__note">提示：PO 後主頁會自動更新（同瀏覽器）。</div>
+      </div>
+    </footer>
+
+    <noscript>
+      <div class="noscript">此頁面需要啟用 JavaScript 才能上傳與處理圖片。</div>
+    </noscript>
+
+    <script src="common.js" defer></script>
+    <script src="editor.js" defer></script>
+  </body>
+</html>
